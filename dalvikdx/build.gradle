@@ -17,7 +17,7 @@ task dexInJar(type: Jar) {
             if (OperatingSystem.current().isWindows())
                 executable "dx.bat"
             else
-                executable "dx"
+                executable "/Users/nugrahaga/Library/Android/sdk/build-tools/29.0.3/dx"
             args "--dex", "--output", "classes.dex", "${jar.archiveName}"
         }
     }
