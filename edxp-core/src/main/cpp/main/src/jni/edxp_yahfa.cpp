@@ -31,10 +31,10 @@ namespace edxp {
             LOGE("setNonCompilableNative: member is null");
             return;
         }
-        void *art_method = getArtMethod(env, member);
+        void *art_method = env->FromReflectedMethod(member);
 
-        if (!art_method) {
-            LOGE("setNonCompilableNative: art_method is null");
+        if (!art_method || (long)art_method < 0x1000) {
+            LOGE("setNonCompilableNative: art_method is null or invalid: %p", art_method);
             return;
         }
         setNonCompilable(art_method);

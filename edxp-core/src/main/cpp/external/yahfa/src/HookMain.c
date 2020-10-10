@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 #include "common.h"
+#include "env.h"
 #include "trampoline.h"
 #include "HookMain.h"
 
@@ -23,6 +24,10 @@ static int kAccFastInterpreterToInterpreterInvoke = 0x40000000;
 
 static jfieldID fieldArtMethod = NULL;
 
+static inline uint16_t read16(void *addr) {
+    return *((uint16_t *) addr);
+}
+
 static inline uint32_t read32(void *addr) {
     return *((uint32_t *) addr);
 }
@@ -31,21 +36,17 @@ static inline void write32(void *addr, uint32_t value) {
     *((uint32_t *) addr) = value;
 }
 
-static inline void *readAddr(void *addr) {
-    return *((void **) addr);
-}
-
 void Java_lab_galaxy_yahfa_HookMain_init(JNIEnv *env, jclass clazz, jint sdkVersion) {
     int i;
     SDKVersion = sdkVersion;
     jclass classExecutable;
     LOGI("init to SDK %d", sdkVersion);
     switch (sdkVersion) {
-        case __ANDROID_API_R__:
+        case ANDROID_R:
             classExecutable = (*env)->FindClass(env, "java/lang/reflect/Executable");
             fieldArtMethod = (*env)->GetFieldID(env, classExecutable, "artMethod", "J");
-        case __ANDROID_API_Q__:
-        case __ANDROID_API_P__:
+        case ANDROID_Q:
+        case ANDROID_P:
             kAccCompileDontBother = 0x02000000;
             OFFSET_ArtMehod_in_Object = 0;
             OFFSET_access_flags_in_ArtMethod = 4;
@@ -55,9 +56,9 @@ void Java_lab_galaxy_yahfa_HookMain_init(JNIEnv *env, jclass clazz, jint sdkVers
                     roundUpToPtrSize(4 * 4 + 2 * 2) + pointer_size;
             ArtMethodSize = roundUpToPtrSize(4 * 4 + 2 * 2) + pointer_size * 2;
             break;
-        case __ANDROID_API_O_MR1__:
+        case ANDROID_O2:
             kAccCompileDontBother = 0x02000000;
-        case __ANDROID_API_O__:
+        case ANDROID_O:
             OFFSET_ArtMehod_in_Object = 0;
             OFFSET_access_flags_in_ArtMethod = 4;
             OFFSET_dex_method_index_in_ArtMethod = 4 * 3;
@@ -67,8 +68,8 @@ void Java_lab_galaxy_yahfa_HookMain_init(JNIEnv *env, jclass clazz, jint sdkVers
                     roundUpToPtrSize(4 * 4 + 2 * 2) + pointer_size * 2;
             ArtMethodSize = roundUpToPtrSize(4 * 4 + 2 * 2) + pointer_size * 3;
             break;
-        case __ANDROID_API_N_MR1__:
-        case __ANDROID_API_N__:
+        case ANDROID_N2:
+        case ANDROID_N:
             OFFSET_ArtMehod_in_Object = 0;
             OFFSET_access_flags_in_ArtMethod = 4; // sizeof(GcRoot<mirror::Class>) = 4
             OFFSET_dex_method_index_in_ArtMethod = 4 * 3;
@@ -81,7 +82,7 @@ void Java_lab_galaxy_yahfa_HookMain_init(JNIEnv *env, jclass clazz, jint sdkVers
 
             ArtMethodSize = roundUpToPtrSize(4 * 4 + 2 * 2) + pointer_size * 4;
             break;
-        case __ANDROID_API_M__:
+        case ANDROID_M:
             OFFSET_ArtMehod_in_Object = 0;
             OFFSET_entry_point_from_interpreter_in_ArtMethod = roundUpToPtrSize(4 * 7);
             OFFSET_entry_point_from_quick_compiled_code_in_ArtMethod =
@@ -91,7 +92,7 @@ void Java_lab_galaxy_yahfa_HookMain_init(JNIEnv *env, jclass clazz, jint sdkVers
             OFFSET_array_in_PointerArray = 4 * 3;
             ArtMethodSize = roundUpToPtrSize(4 * 7) + pointer_size * 3;
             break;
-        case __ANDROID_API_L_MR1__:
+        case ANDROID_L2:
             OFFSET_ArtMehod_in_Object = 4 * 2;
             OFFSET_entry_point_from_interpreter_in_ArtMethod = roundUpToPtrSize(
                     OFFSET_ArtMehod_in_Object + 4 * 7);
@@ -102,7 +103,7 @@ void Java_lab_galaxy_yahfa_HookMain_init(JNIEnv *env, jclass clazz, jint sdkVers
             OFFSET_array_in_PointerArray = 12;
             ArtMethodSize = OFFSET_entry_point_from_interpreter_in_ArtMethod + pointer_size * 3;
             break;
-        case __ANDROID_API_L__:
+        case ANDROID_L:
             OFFSET_ArtMehod_in_Object = 4 * 2;
             OFFSET_entry_point_from_interpreter_in_ArtMethod = OFFSET_ArtMehod_in_Object + 4 * 4;
             OFFSET_entry_point_from_quick_compiled_code_in_ArtMethod =
@@ -122,7 +123,7 @@ void Java_lab_galaxy_yahfa_HookMain_init(JNIEnv *env, jclass clazz, jint sdkVers
 }
 
 void setNonCompilable(void *method) {
-    if (SDKVersion < __ANDROID_API_N__) {
+    if (SDKVersion < ANDROID_N) {
         return;
     }
     int access_flags = read32((char *) method + OFFSET_access_flags_in_ArtMethod);
@@ -137,7 +138,7 @@ bool setNativeFlag(void *method, bool isNative) {
     int old_access_flags = access_flags;
     if (isNative) {
         access_flags |= kAccNative;
-        if (SDKVersion >= __ANDROID_API_Q__) {
+        if (SDKVersion >= ANDROID_Q) {
             // On API 29 whether to use the fast path or not is cached in the ART method structure
             access_flags &= ~kAccFastInterpreterToInterpreterInvoke;
         }
@@ -167,7 +168,7 @@ static int doBackupAndHook(JNIEnv *env, void *targetMethod, void *hookMethod, vo
 
     // set kAccCompileDontBother for a method we do not want the compiler to compile
     // so that we don't need to worry about hotness_count_
-    if (SDKVersion >= __ANDROID_API_N__) {
+    if (SDKVersion >= ANDROID_N) {
         setNonCompilable(targetMethod);
         setNonCompilable(hookMethod);
     }
@@ -204,8 +205,9 @@ static int doBackupAndHook(JNIEnv *env, void *targetMethod, void *hookMethod, vo
     }
 
     // set the target method to native so that Android O wouldn't invoke it with interpreter
-    if (SDKVersion >= __ANDROID_API_O__) {
+    if (SDKVersion >= ANDROID_O) {
         setNativeFlag(targetMethod, true);
+        LOGI("access flags is 0x%x", access_flags);
     }
 
     LOGI("hook and backup done");
@@ -215,8 +217,8 @@ static int doBackupAndHook(JNIEnv *env, void *targetMethod, void *hookMethod, vo
 
 static void ensureMethodCached(void *hookMethod, void *backupMethod,
                                void *hookClassResolvedMethods) {
-    if (!backupMethod) {
-        LOGE("ensureMethodCached: backupMethod is null");
+    if (!backupMethod || (long) backupMethod < 0x1000) {
+        LOGW("ensureMethodCached: backupMethod is null or illegal: %p", backupMethod);
         return;
     }
     void *dexCacheResolvedMethods;
@@ -239,7 +241,7 @@ static void ensureMethodCached(void *hookMethod, void *backupMethod,
     }
 
     // finally the addr of backup method is put at the corresponding location in cached methods array
-    if (SDKVersion >= __ANDROID_API_O_MR1__) {
+    if (SDKVersion >= ANDROID_O2) {
         // array of MethodDexCacheType is used as dexCacheResolvedMethods in Android 8.1
         // struct:
         // struct NativeDexCachePair<T> = { T*, size_t idx }
@@ -263,16 +265,17 @@ static void ensureMethodCached(void *hookMethod, void *backupMethod,
     }
 }
 
-void *getArtMethod(JNIEnv *env, jobject jmethod) {
+static void *getArtMethod(JNIEnv *env, jobject jmethod) {
     void *artMethod = NULL;
 
-    if (jmethod == NULL) {
+    if(jmethod == NULL) {
         return artMethod;
     }
 
-    if (SDKVersion == __ANDROID_API_R__) {
+    if(SDKVersion == ANDROID_R) {
         artMethod = (void *) (*env)->GetLongField(env, jmethod, fieldArtMethod);
-    } else {
+    }
+    else {
         artMethod = (void *) (*env)->FromReflectedMethod(env, jmethod);
     }
 
@@ -319,7 +322,6 @@ jboolean Java_lab_galaxy_yahfa_HookMain_backupAndHookNative(JNIEnv *env, jclass 
     )) {
         (*env)->NewGlobalRef(env,
                              hook); // keep a global ref so that the hook method would not be GCed
-        if (backup) (*env)->NewGlobalRef(env, backup);
         return JNI_TRUE;
     } else {
         return JNI_FALSE;
@@ -329,8 +331,8 @@ jboolean Java_lab_galaxy_yahfa_HookMain_backupAndHookNative(JNIEnv *env, jclass 
 void Java_lab_galaxy_yahfa_HookMain_ensureMethodCached(JNIEnv *env, jclass clazz,
                                                        jobject hook,
                                                        jobject backup) {
-    ensureMethodCached(getArtMethod(env, hook),
-                       getArtMethod(env, backup),
+    ensureMethodCached((void *) (*env)->FromReflectedMethod(env, hook),
+                       backup == NULL ? NULL : (void *) (*env)->FromReflectedMethod(env, backup),
                        getResolvedMethodsAddr(env, hook));
 }
 
@@ -346,11 +348,11 @@ static void *getResolvedMethodsAddr(JNIEnv *env, jobject hook) {
     jobject dexCacheObj = (*env)->GetObjectField(env, backupClass, dexCacheFid);
     // get resolvedMethods address
     jclass dexCacheClass = (*env)->GetObjectClass(env, dexCacheObj);
-    if (SDKVersion >= __ANDROID_API_N__) {
+    if (SDKVersion >= ANDROID_N) {
         jfieldID resolvedMethodsFid = (*env)->GetFieldID(env, dexCacheClass, "resolvedMethods",
                                                          "J");
         return (void *) (*env)->GetLongField(env, dexCacheObj, resolvedMethodsFid);
-    } else if (SDKVersion >= __ANDROID_API_L__) {
+    } else if (SDKVersion >= ANDROID_L) {
         LOGE("this should has been done in java world: %d", SDKVersion);
         return 0;
     } else {
